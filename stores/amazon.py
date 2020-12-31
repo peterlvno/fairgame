@@ -246,16 +246,13 @@ class Amazon:
 
         if os.path.exists(CREDENTIAL_FILE):
             credential = load_encrypted_config(CREDENTIAL_FILE, encryption_pass)
-            self.username = credential["username"]
-            self.password = credential["password"]
         else:
             log.info("No credential file found, let's make one")
             log.info("NOTE: DO NOT SAVE YOUR CREDENTIALS IN CHROME, CLICK NEVER!")
             credential = self.await_credential_input()
             create_encrypted_config(credential, CREDENTIAL_FILE)
-            self.username = credential["username"]
-            self.password = credential["password"]
-
+        self.username = credential["username"]
+        self.password = credential["password"]
         if os.path.exists(AUTOBUY_CONFIG_PATH):
             with open(AUTOBUY_CONFIG_PATH) as json_file:
                 try:
@@ -313,7 +310,6 @@ class Amazon:
                     + ", if the address is right, there might be a network outage..."
                 )
                 time.sleep(3)
-                pass
         cart_quantity = self.get_cart_count()
         if cart_quantity > 0:
             log.warning(f"Found {cart_quantity} item(s) in your cart.")
@@ -415,7 +411,7 @@ class Amazon:
     def is_logged_in(self):
         try:
             text = self.driver.find_element_by_id("nav-link-accountList").text
-            return not any(sign_in in text for sign_in in SIGN_IN_TEXT)
+            return all(sign_in not in text for sign_in in SIGN_IN_TEXT)
         except sel_exceptions.NoSuchElementException:
             return False
 
@@ -651,13 +647,13 @@ class Amazon:
                 log.debug("Price index error")
                 return False
             try:
-                if self.checkshipping:
-                    if SHIPPING_ONLY_IF in shipping[idx].text:
-                        ship_price = parse_price("0")
-                    else:
-                        ship_price = parse_price(shipping[idx].text)
-                else:
+                if (
+                    SHIPPING_ONLY_IF in shipping[idx].text
+                    or not self.checkshipping
+                ):
                     ship_price = parse_price("0")
+                else:
+                    ship_price = parse_price(shipping[idx].text)
             except IndexError:
                 log.debug("shipping index error")
                 return False
@@ -697,19 +693,18 @@ class Amazon:
                 # log.info(f"page title is {self.driver.title}")
                 if self.driver.title in SHOPING_CART_TITLES:
                     return True
-                else:
-                    log.info("did not add to cart, trying again")
-                    log.debug(f"failed title was {self.driver.title}")
-                    self.send_notification(
-                        "Failed Add to Cart", "failed-atc", self.take_screenshots
-                    )
-                    self.save_page_source("failed-atc")
-                    in_stock = self.check_stock(
-                        asin=asin,
-                        reserve_max=reserve_max,
-                        reserve_min=reserve_min,
-                        retry=retry + 1,
-                    )
+                log.info("did not add to cart, trying again")
+                log.debug(f"failed title was {self.driver.title}")
+                self.send_notification(
+                    "Failed Add to Cart", "failed-atc", self.take_screenshots
+                )
+                self.save_page_source("failed-atc")
+                in_stock = self.check_stock(
+                    asin=asin,
+                    reserve_max=reserve_max,
+                    reserve_min=reserve_min,
+                    retry=retry + 1,
+                )
         return in_stock
 
     # search lists of asin lists, and remove the first list that matches provided asin
@@ -1085,9 +1080,8 @@ class Amazon:
             except sel_exceptions.NoSuchElementException:
                 pass
             self.button_xpaths.append(self.button_xpaths.pop(0))
-            if button:
-                if button.is_enabled() and button.is_displayed():
-                    break
+            if button and button.is_enabled() and button.is_displayed():
+                break
             if time.time() > timeout:
                 log.error("couldn't find buttons to proceed to checkout")
                 self.save_page_source("ptc-error")
@@ -1113,7 +1107,6 @@ class Amazon:
             log.info(f"Clicking Button {button.text} to place order")
             button.click()
         self.wait_for_page_change(page_title=previous_title)
-
     @debug
     def handle_order_complete(self):
         log.info("Order Placed.")
@@ -1212,10 +1205,8 @@ class Amazon:
             return file_name
         except sel_exceptions.TimeoutException:
             log.info("Timed out taking screenshot, trying to continue anyway")
-            pass
         except Exception as e:
-            log.error(f"Trying to recover from error: {e}")
-            pass
+            log.error(f'Trying to recover from error: {e}')
         return None
 
     def save_page_source(self, page):
@@ -1232,11 +1223,7 @@ class Amazon:
             self.driver.title == page_title or not self.driver.title
         ):
             pass
-        if self.driver.title != page_title:
-            return True
-        else:
-            return False
-
+        return self.driver.title != page_title
     def page_wait_delay(self):
         return DEFAULT_PAGE_WAIT_DELAY
 
@@ -1401,15 +1388,15 @@ class Amazon:
                         process.kill()
                     except psutil.NoSuchProcess:
                         log.debug(f"{pid} not found. Continuing...")
-                        pass
             elif self.driver:
                 self.driver.quit()
 
         except Exception as e:
             log.info(e)
             log.info(
-                "Failed to clean up after web driver.  Please manually close browser."
+                'Failed to clean up after web driver.  Please manually close browser.'
             )
+
             return False
         return True
 
